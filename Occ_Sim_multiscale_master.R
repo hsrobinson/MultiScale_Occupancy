@@ -120,12 +120,14 @@ fulldata <- bind_cols(simdata, as.tibble(y)) %>%#using as.tibble to maintain col
 
 
 sampdata <- fulldata %>%
-  tidyr::gather(trial, subID, obs, V1:V7) %>%
+  tidyr::gather(trial, obs, V1:V7) %>%
   mutate(
     trial = as.integer(sub("[A-z]", "", trial)),
     obs = replace(obs, sample(1:n(), 0.5*n(), replace = F), NA)
   ) %>%
   arrange(cellID, subID, trial)
+
+#
 
 #clean-up
 #rm(list= ls()[!(ls() %in% c("fulldata", "sampdata" ))]); gc()
