@@ -124,13 +124,13 @@ sampdata <- fulldata %>%
   mutate(
     trial = as.integer(sub("[A-z]", "", trial)),
     obs = replace(obs, sample(1:n(), 0.5*n(), replace = F), NA)
-  ) %>%
+        ) %>%
   arrange(cellID, subID, trial)
 
-#
+
 
 #clean-up
-#rm(list= ls()[!(ls() %in% c("fulldata", "sampdata" ))]); gc()
+rm(list= ls()[!(ls() %in% c("fulldata", "sampdata" ))]); gc()
 
 #################################################
 #  Covariate creation
@@ -165,139 +165,10 @@ for(i in 1:nrow(sampdata)){
 
 #################################################################################################################
 #NOW PASS SIMULATED/SAMPLED DATA ON TO JAGS FOR ANALYSIS
+# Converting everything to Kery's language
 #################################################################################################################
 
-sp.params = c("alpha_cell.occ","alpha_sub.occ", "alpha_sub.p", "beta_cellndvi.occ","beta_cellprotect.occ",
-              "beta_cellroad.occ", "beta_subndvi.occ", "beta_subprotect.occ", "beta_subroad.occ",
-              "beta_cams.p")
-
-#  Create intial values for det_hist
-det_init <- sampdata %>% 
-  group_by(cellID, subID) %>% 
-  mutate(
-    hold = is.na(obs),
-    init = as.numeric(any(obs == 1, na.rm = T)),
-    init = replace(init, !hold, NA)
-  ) %>% 
-  .$init
-
-cell_init <- sampdata %>% 
-  group_by(cellID) %>% 
-  summarise(
-    init = max(obs, na.rm = T)
-  ) %>% 
-  .$init
-
-sub_init <- sampdata %>% 
-  group_by(cellID, subID) %>% 
-  summarise(
-    init = max(obs, na.rm = T)
-  ) %>% 
-  mutate(
-    init = replace(init, init == -Inf, 0)
-  ) %>%
-  ungroup %>%
-  tidyr::spread(subID, init) %>%
-  select(-cellID)
-
-
-#Specify the initial values
-sp.inits = function() {
-  list(
-    alpha_cell.occ = runif(1, -1, 1),#n, min, max
-    alpha_sub.occ = runif(1, -1, 1),
-    alpha_sub.p = runif(1, -1, 1),
-    beta_cellndvi.occ = runif(1, -1, 1),
-    beta_cellprotect.occ = runif(1, -1, 1),
-    beta_cellroad.occ = runif(1, -1, 1),
-    beta_subndvi.occ = runif(1, -1, 1),
-    beta_subprotect.occ = runif(1, -1, 1),
-    beta_subroad.occ = runif(1, -1, 1),
-    beta_cams.p = runif(1, -1, 1),
-    det_hist = det_init,
-    cellocc = cell_init,
-    subocc = as.matrix(sub_init)
-  )
-}
-
-#  Organize data for jags
-jdat <- list(
-  det_hist = sampdata$obs,
-  cellID = sampdata$cellID,
-  subID = sampdata$subID,
-  trial = sampdata$trial,
-  ncell = length(unique(sampdata$cellID)),
-  nsub = length(unique(sampdata$subID)),
-  ntrial = length(unique(sampdata$trial)),
-  cellcov = cellcov,
-  subndvi = subndvi,
-  subprotect = subprotect,
-  subroad = subroad,
-  cameras = cameras,
-  nobs = nrow(sampdata),
-  det_init = det_init,
-  cell_init = cell_init,
-  sub_init = sub_init
-  
-)
-
-jag.res <- jags.parallel(
-  jdat, 
-  sp.inits, 
-  sp.params, 
-  "modelworkinglong.txt", 
-  n.chains=3, 
-  n.iter=1000, 
-  n.burnin=100, 
-  n.thin=10
-)
-
-jag.res$BUGSoutput$summary
-mcmcplot(jag.res)
-
-#################################################################################################################
-#NOW PASS SIMULATED/SAMPLED DATA ON TO JAGS FOR ANALYSIS
-#################################################################################################################
-
-#seperate detection history from covariate data and reshape for jags
-det_hist = select(sampdata, studyID, cellID, subID, starts_with("V")) #takes advantage of the original naming in the for loop
-det_hist = simplify2array(by(det_hist, det_hist$cellID))
-
-#jags wants a list of variables that will be used in the model
-
-sp.data <- list(det_hist=det_hist, cellndvi= sampdata$cellndvi, cellprotect=sampdata$cellprotect,
-                cellroad=sampdata$cellroad, cameras=sampdata$cameras, subndvi=sampdata$subndvi, subprotect=sampdata$subprotect, 
-                subroad=sampdata$subroad, cells= length(unique(sampdata$cellID)), subcells= length(unique(sampdata$subID)), trials=ncol(det_hist))
-
-#Specify the parameters to be monitored
-sp.params = c("alpha_cell.occ","alpha_sub.occ", "alpha_sub.p", "beta_cellndvi.occ","beta_cellprotect.occ",
-              "beta_cellroad.occ", "beta_subndvi.occ", "beta_subprotect.occ", "beta_subroad.occ",
-              "beta_cams.p")
-
-#creat initial value for occupancy
-occ_init <- apply(det_hist, 1, function(x) as.numeric(any(x > 0)) )
-
-#Specify the initial values
-sp.inits = function() {
-  list(alpha_cell.occ = runif(1, -1, 1),#n, min, max
-       alpha_sub.occ = runif(1, -1, 1),
-       alpha_sub.p = runif(1, -1, 1),
-       beta_cellndvi.occ = runif(1, -1, 1),
-       beta_cellprotect.occ = runif(1, -1, 1),
-       beta_cellroad.occ = runif(1, -1, 1),
-       beta_subndvi.occ = runif(1, -1, 1),
-       beta_subprotect.occ = runif(1, -1, 1),
-       beta_subroad.occ = runif(1, -1, 1),
-       beta_cams.p = runif(1, -1, 1),
-       occ = occ_init)
-}
-
-
-
-#Run the model and call the results
-#jags text file must be in working directory
-jag.res = jags(sp.data, sp.inits, sp.params, "modelworking.txt", 
-               n.chains=3, n.iter=10000, n.burnin=1000, n.thin=10)
-
-
-
+# Bundle and summarize data set
+y <- data$y
+str( win.data <- list(y = y, n.pond = dim(y)[1], n.samples = dim(y)[2], n.pcr = dim(y)[3],
+                      covA = data$covA, covB = data$covB, covC = data$covC))
