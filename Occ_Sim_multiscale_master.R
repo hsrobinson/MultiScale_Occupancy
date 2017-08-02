@@ -22,9 +22,9 @@ subcells <- cells*subunits_per #the number of small scale cells in the study are
 #create  spatial variables - normal distribution for continous variables with mean of 0 and standard deviation of 1
 
 #broad scale first
-cellroad<-rnorm(n=cells, 0,1) #format is (number of obs, mean, SD)
 cellndvi<-rnorm(n=cells, 0, 1)
 cellprotect<-rnorm(n=cells, 0, 1)
+cellroad<-rnorm(n=cells, 0,1) #format is (number of obs, mean, SD)
 
 #of uniform if you prefer
 #cellroad<-runif(n=cells, -1,1) #format is (number of obs, min, max)
@@ -38,10 +38,13 @@ beta_cellprotect.occ <- 0.4
 beta_cellroad.occ <- 0.6
 
 #create continous probability of occupancy based on above betas and random covariate values
-cellocc.prob <- plogis(alpha_cell.occ + beta_cellroad.occ*cellroad + beta_cellndvi.occ*cellndvi + beta_cellprotect.occ*cellprotect) #plogis is slick single step probability
+cellocc.prob <- plogis(alpha_cell.occ + beta_cellndvi.occ*cellndvi + beta_cellprotect.occ*cellprotect + beta_cellroad.occ*cellroad) #plogis is slick single step probability
 
 #occupancy is binomial so convert continous prob into 1s and 0s
 true_cell.occ <- rbinom(n=cells, size=1, prob=cellocc.prob)
+
+#to test how well a logistic regression can return created betas
+#glm(true_cell.occ ~ cellndvi + cellprotect + cellroad, family = binomial)
 
 #combine needed data into a single dataframe with cellID and studyID columns 
 studyID <-rep(c(1:study_areas), each = cells/study_areas)
@@ -69,8 +72,12 @@ subocc.prob <-plogis(alpha_sub.occ + beta_subroad.occ*subroad + beta_subndvi.occ
 #convert continous prob into 1s and 0s
 true_sub.occ <- rbinom(n=subcells, size=1, prob=subocc.prob)
 
+#to test how well a logistic regression can return created subbetas
+#glm(true_sub.occ ~ subndvi + subprotect + subroad, family = binomial)
+
 #create continous probability of detection in each subcell
 det.prob <- plogis(alpha_sub.p + betacams.p*cameras)
+
 
 #create an ID column; repeating series based on number of broad cells and subunits per 
 #combine two dataframes and reference cells properly
@@ -88,7 +95,7 @@ simdata <- cbind(ids, true_sub.occ, det.prob, cameras, subndvi, subprotect, subr
 #i.e. force 0s for unoccupied cells  
 # turn on or off depending on desire to estimate subcell betas 
 simdata$true_sub.occ<- simdata$true_cell.occ*simdata$true_sub.occ
-
+simdata$det.prob <- simdata$true_sub.occ * simdata$det.prob
 
 
 #SIMULATED SURVEY
@@ -107,9 +114,13 @@ for(i in 1:trials){
 fulldata <- bind_cols(simdata, as.tibble(y)) %>%#using as.tibble to maintain column names of y
   select("studyID", "cellID", "subID", "true_cell.occ", "true_sub.occ", everything())
 
-#select random sample of y based on proportion of area or cells we sampled and sort on subID
+#select random sample of full data based on proportion of area or cells we sampled and sort on subID
+#sampdata <- fulldata %>% group_by(cellID, subID) %>%
+#  sample_frac( size= prop)
+
+
 sampdata <- fulldata %>%
-  tidyr::gather(trial, obs, V1:V7) %>%
+  tidyr::gather(trial, subID, obs, V1:V7) %>%
   mutate(
     trial = as.integer(sub("[A-z]", "", trial)),
     obs = replace(obs, sample(1:n(), 0.5*n(), replace = F), NA)
@@ -160,13 +171,13 @@ sp.params = c("alpha_cell.occ","alpha_sub.occ", "alpha_sub.p", "beta_cellndvi.oc
 
 #  Create intial values for det_hist
 det_init <- sampdata %>% 
-    group_by(cellID, subID) %>% 
-    mutate(
-      hold = is.na(obs),
-      init = as.numeric(any(obs == 1, na.rm = T)),
-      init = replace(init, !hold, NA)
-    ) %>% 
-    .$init
+  group_by(cellID, subID) %>% 
+  mutate(
+    hold = is.na(obs),
+    init = as.numeric(any(obs == 1, na.rm = T)),
+    init = replace(init, !hold, NA)
+  ) %>% 
+  .$init
 
 cell_init <- sampdata %>% 
   group_by(cellID) %>% 
@@ -191,19 +202,19 @@ sub_init <- sampdata %>%
 #Specify the initial values
 sp.inits = function() {
   list(
-        alpha_cell.occ = runif(1, -1, 1),#n, min, max
-        alpha_sub.occ = runif(1, -1, 1),
-        alpha_sub.p = runif(1, -1, 1),
-        beta_cellndvi.occ = runif(1, -1, 1),
-        beta_cellprotect.occ = runif(1, -1, 1),
-        beta_cellroad.occ = runif(1, -1, 1),
-        beta_subndvi.occ = runif(1, -1, 1),
-        beta_subprotect.occ = runif(1, -1, 1),
-        beta_subroad.occ = runif(1, -1, 1),
-        beta_cams.p = runif(1, -1, 1),
-        det_hist = det_init,
-        cellocc = cell_init,
-        subocc = as.matrix(sub_init)
+    alpha_cell.occ = runif(1, -1, 1),#n, min, max
+    alpha_sub.occ = runif(1, -1, 1),
+    alpha_sub.p = runif(1, -1, 1),
+    beta_cellndvi.occ = runif(1, -1, 1),
+    beta_cellprotect.occ = runif(1, -1, 1),
+    beta_cellroad.occ = runif(1, -1, 1),
+    beta_subndvi.occ = runif(1, -1, 1),
+    beta_subprotect.occ = runif(1, -1, 1),
+    beta_subroad.occ = runif(1, -1, 1),
+    beta_cams.p = runif(1, -1, 1),
+    det_hist = det_init,
+    cellocc = cell_init,
+    subocc = as.matrix(sub_init)
   )
 }
 
@@ -277,7 +288,7 @@ sp.inits = function() {
        beta_subroad.occ = runif(1, -1, 1),
        beta_cams.p = runif(1, -1, 1),
        occ = occ_init)
-      }
+}
 
 
 
